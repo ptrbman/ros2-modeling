@@ -202,5 +202,5 @@ def use_case():
 
 
 example()
-# validation()
-# use_case()
+validation()
+use_case()

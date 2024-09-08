@@ -154,14 +154,12 @@ class UPPAAL():
         return False
 
     def parse_load_query(output):
-        print(output)
         satisfied = None
         lines = output.split("\n")
         idx = 0
         while "Verifying formula" not in lines[idx]:
             idx += 1
 
-        print("!!!", lines[idx])
         l1 = lines[idx] # "Verifying formula 1 ..."
         l2 = lines[idx+1].strip() # Formula is/NOT satisfied
         l3 = lines[idx+2] # (x/y runs) H1: ...
