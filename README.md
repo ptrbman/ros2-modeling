@@ -17,5 +17,3 @@ Enter the root directory and execute command:
 ```python demo.py```
 
 This will run the example of the paper, the validation experiments as well as the use case. Total runtime should be less than five minutes on a normal laptop.
-
-The experiments in the paper was run on Ubuntu 22.04.
