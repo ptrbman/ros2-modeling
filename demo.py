@@ -20,7 +20,7 @@
 
 from system import System
 from grapher import Grapher
-
+import time
 
 
 # Call this to create the ss validation case
@@ -98,15 +98,44 @@ def prio_inversion():
     return system
 
 
-def case_study(cameras, prob):
-    system = System("casestudy" + str(cameras))
+# Case study has following parameters:
+# - cameras: No. of cameras
+# - prob: probability of each camera being used (load)
+# - mcamera: which camera should be monitored
+# - subcription: if True, subscription is used of fusion (otherwise Timer)
+#
+def case_study(cameras, prob, mcamera, subscription, fusion_period=500):
+
+    CAMERAWCET = 20
+    CAMERAPER = 1000
+    OBJDETWCET = 50
+    FUSIONSUBWCET = 50
+    FUSIONSUB = 10
+    FUSIONTIMERWCET = 90
+    ACTUATORWCET = 50
+    
+    if mcamera >= cameras:
+        return None
+
+    if subscription:
+        name = "casestudy" + str(cameras) + "_" + str(mcamera) + "_sub"
+    else:
+        name = "casestudy" + str(cameras) + "_" + str(mcamera) + "_tmr"
+
+    system = System(name)
 
     for i in range(cameras):
-        system.add_probalisticdatagenerator("CAMERA" + str(i), 1000, 20, 0, prob, i == 0) # Monitor first camera
-        system.add_subscriber("OBJDET" + str(i), "CAMERA" + str(i), 50, [], [], "pd")
+        system.add_probalisticdatagenerator("CAMERA" + str(i), CAMERAPER, CAMERAWCET, 0, prob, i == mcamera)
+        system.add_subscriber("OBJDET" + str(i), "CAMERA" + str(i), OBJDETWCET, [], [], "pd")
 
-    system.add_timer("FUSION", 500, 0, 30, ["OBJDET" + str(i) for i in range(cameras)], [10]*cameras, "FUSIONxOBJDET0_data") # What about priorities???
-    system.add_subscriber("ACTUATOR", "FUSION", 50, [], [], "pd")
+    if subscription:
+        if 0 == mcamera:
+            system.add_subscriber("FUSION", "OBJDET0", FUSIONSUBWCET, ["OBJDET" + str(i) for i in range(1,cameras)], [FUSIONSUB]*(cameras-1), "pd")
+        else:
+            system.add_subscriber("FUSION", "OBJDET0", FUSIONSUBWCET, ["OBJDET" + str(i) for i in range(1,cameras)], [FUSIONSUB]*(cameras-1), "FUSIONxOBJDET" + str(mcamera) + "_data")
+    else:
+        system.add_timer("FUSION", fusion_period, 0, FUSIONTIMERWCET, ["OBJDET" + str(i) for i in range(cameras)], [FUSIONSUB]*cameras, "FUSIONxOBJDET" + str(mcamera) + "_data")
+    system.add_subscriber("ACTUATOR", "FUSION", ACTUATORWCET, [], [], "pd")
     system.monitor("ACTUATOR", 0)
 
     return system
@@ -136,71 +165,157 @@ def example():
 
 
 
-
-def use_case():
+# Let's do the same but generate for each camera?
+# def case_study(cameras, prob, mcamera, subscription, fusion_period=500):
+def test_system(max_cameras, mcamera, subscription, upper_limit, fusion_period):
+    print("test_system(", mcamera, subscription, upper_limit, fusion_period, ")")
     results = []
     probs = [25, 50, 75, 100]
-    for i in range(1,17):
+    for cameras in range(1,max_cameras+1):
         for prob in probs:
-            system = case_study(i, prob)
+            print("\t", cameras, prob)
+            system = case_study(cameras, prob, mcamera, subscription, fusion_period)
             print(system)
-            THRESHOLD = 850
-            PERCENTAGE = 0.05
-            formula, data = system.measure_load(THRESHOLD, PERCENTAGE)
-            print(formula, "\t", data)
-            results.append((i, prob, data, formula))
+            if system:
+                #print("\trunning system")
+                THRESHOLD = 850
+                PERCENTAGE = 0.05
 
+                start = time.time()
+                formula, data = system.measure_load(THRESHOLD, PERCENTAGE, upper_limit)
+                end = time.time()
+                t = end - start
+                results.append((cameras, prob, data, formula, t))
+            else:
+                print("\tsystem could not be created")
+                results.append((cameras, prob, "n/a", "", 0.0))
 
-        # results.append((i, mrt))
-
-
-    print("#Cams\tLoad\tResult")
-    print("============================")
-    for (c, p, r, f) in results:
-        print(c, "\t", p, "\t", r)
+    # print("#Cams\tLoad\tResult")
+    # print("============================")
+    # for (c, p, r, f) in results:
+    #     print(c, "\t", p, "\t", r)
 
 
     # Uncomment these lines to generate the table presented in the paper.
     #
-    # i = 0
-    # result = []
-    # rows = len(probs)
-    # cols = 4
-    # header = []
+    i = 0
+    result = []
+    rows = len(probs)
+    cols = 3
+    header = []
+    result.append("\\begin{table}")
+    result.append("\\centering")
+    result.append("\\begin{tabular}{|" + '|'.join('c'*cols*4) + '|}')
 
-    # result.append("\\begin{tabular}{|" + '|'.join('c'*cols*3) + '|}')
+    result.append("\\hline")
+    for _ in range(cols):
+        header.append("\\#Cams & Load & $\\leq 850$ & Time")
+    result.append(' & '.join(header) + "\\\\")
+    result.append("\\hline")
+    while i*cols*rows < len(results):
+        # Create one block (i.e., row x cols)
+        lines = []
+        for _ in range(rows):
+            lines.append([])
+        for col in range(cols):
+            for row in range(rows):
+                (c, p, r, f, t) = results[i*cols*rows + col*rows + row]
+                #print(col, "x", row, " --> ", c, p, r)
+                if r:
+                    if not r == "n/a":
+                        r = "Yes"
+                else:
+                    r = "No"
 
-    # result.append("\\hline")
-    # for _ in range(cols):
-    #     header.append("\\#Cams & Load & $\leq 850$")
-    # result.append(' & '.join(header) + "\\\\")
-    # result.append("\\hline")
-    # while i*cols*rows < len(results):
-    #     # Create one block (i.e., row x cols)
-    #     lines = []
-    #     for _ in range(rows):
-    #         lines.append([])
-    #     for col in range(cols):
-    #         for row in range(rows):
-    #             (c, p, r, f) = results[i*cols*rows + col*rows + row]
-    #             print(col, "x", row, " --> ", c, p, r)
-    #             if r:
-    #                 r = "Yes"
-    #             else:
-    #                 r = "No"
-
-    #             fmt = str(c) + " & " + str(p) + "\\% & " + r
-    #             lines[row].append(fmt)
-    #             print("NEWLINE: ", row, "--->", lines[row])
-    #     i += 1
-    #     for l in lines:
-    #         result.append(' & '.join(l) + "\\\\")
-    #     result.append("\\hline")
-    # result.append("\\end{tabular}")
-    # print("\n\n\n\n")
-    # print('\n'.join(result))
+                fmt = str(c) + " & " + str(p) + "\\% & " + r + " & " + "{:.2f}".format(t)
+                lines[row].append(fmt)
+                #print("NEWLINE: ", row, "--->", lines[row])
+        i += 1
+        for l in lines:
+            result.append(' & '.join(l) + "\\\\")
+        result.append("\\hline")
+    result.append("\\end{tabular}")
+    if subscription:
+        result.append("\\caption{Use case monitoring " + str(mcamera+1) + ", with subscription-based fusion analysing " + str(upper_limit) + " time steps.}")
+    else:
+        result.append("\\caption{Use case monitoring " + str(mcamera+1) + ", with timer-based fusion (period of " + str(fusion_period) + ") analysing " + str(upper_limit) + " time steps.}")
+    result.append("\\end{table}")
+    latex = '\n'.join(result)
+    return latex
 
 
-example()
-# validation()
-# use_case()
+# Correspoding to the first study
+def first_study():
+    all = []
+    max_cameras = 12
+    for mcamera in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
+        for sub in [False]:
+            for upper_limit in [10000]:
+                for fusion_period in [500]:
+                    latex = test_system(max_cameras, mcamera, sub, upper_limit, fusion_period)
+                    all.append(latex)    
+
+    return "\n\n\n".join(all)
+
+# Ten-fold time steps
+def ten_fold():
+    all = []
+    max_cameras = 6
+    for mcamera in [0, 1, 2, 3, 4, 5, 6, 7]:
+        for sub in [False]:
+            for upper_limit in [100000]:
+                for fusion_period in [500]:
+                    latex = test_system(max_cameras, mcamera, sub, upper_limit, fusion_period)
+                    all.append(latex)    
+
+    return "\n\n\n".join(all)
+
+# Subscription fusion
+def subscription():
+    all = []
+    max_cameras = 6
+    for mcamera in [0, 1]:
+        for sub in [True]:
+            for upper_limit in [10000]:
+                for fusion_period in [500]:
+                    latex = test_system(max_cameras, mcamera, sub, upper_limit, fusion_period)
+                    all.append(latex)    
+
+    return "\n\n\n".join(all)
+
+# Fusion periods
+def fusion_study():
+    all = []
+    max_cameras = 9
+    for mcamera in [0, 1]:
+        for sub in [False]:
+            for upper_limit in [10000]:
+                for fusion_period in [250, 750]:
+                    latex = test_system(max_cameras, mcamera, sub, upper_limit, fusion_period)
+                    all.append(latex)    
+
+    return "\n\n\n".join(all)
+
+#example()
+#validation()
+
+latex = first_study()
+fout = open("results_first_study.txt", 'w')
+fout.write(latex)
+fout.close()
+
+#latex = ten_fold()
+#fout = open("results_ten_fold.txt", 'w')
+#fout.write(latex)
+#fout.close()
+
+#latex = subscription()
+#fout = open("results_subscription.txt", 'w')
+#fout.write(latex)
+#fout.close()
+
+#latex = fusion_study()
+#fout = open("results_fusion_study.txt", 'w')
+#fout.write(latex)
+#fout.close()
+

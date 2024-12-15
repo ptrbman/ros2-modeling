@@ -31,6 +31,8 @@ class UPPAAL():
             return output
         except Exception:
             # We assume that any error is due to overflow in scheduling queue.
+            print("Exception!")
+            10/0
             return "Overflow"
 
     def write_sup_query(queryfile):
@@ -39,9 +41,9 @@ class UPPAAL():
         fout.close()
 
 
-    def write_measure_load_query(queryfile, load_threshold, percentage):
+    def write_measure_load_query(queryfile, load_threshold, percentage, upper_limit=10000):
         fout = open(queryfile, 'w')
-        formula = "Pr [<=10000] (<> monitor.measure && monitor.x[lm] >= " + str(load_threshold) + ") <= " + str(percentage)
+        formula = "Pr [<=" + str(upper_limit) + "] (<> monitor.measure && monitor.x[lm] >= " + str(load_threshold) + ") <= " + str(percentage)
         fout.write(formula + "\n")
         fout.close()
         return formula
@@ -154,14 +156,14 @@ class UPPAAL():
         return False
 
     def parse_load_query(output):
-        print(output)
+        #print(output)
         satisfied = None
         lines = output.split("\n")
         idx = 0
         while "Verifying formula" not in lines[idx]:
             idx += 1
 
-        print("!!!", lines[idx])
+        #print("!!!", lines[idx])
         l1 = lines[idx] # "Verifying formula 1 ..."
         l2 = lines[idx+1].strip() # Formula is/NOT satisfied
         l3 = lines[idx+2] # (x/y runs) H1: ...
@@ -202,9 +204,9 @@ class UPPAAL():
 
 
     # Used for use case, checks if the system is under load_threshold, with percentage chance
-    def measure_load(modelfile, load_threshold, percentage):
+    def measure_load(modelfile, load_threshold, percentage, upper_limit):
         queryfile = modelfile + ".q"
-        formula = UPPAAL.write_measure_load_query(queryfile, load_threshold, percentage)
+        formula = UPPAAL.write_measure_load_query(queryfile, load_threshold, percentage, upper_limit)
         output = UPPAAL.run_uppaal(modelfile, queryfile)
         if UPPAAL.check_overload(output):
             return formula, "Overload"

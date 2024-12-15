@@ -11,6 +11,8 @@
 from uppaal import UPPAAL
 from grapher import Grapher
 
+import time
+
 ## Class representing a Node in the ROS system
 class Node():
     def const_id(self):
@@ -227,23 +229,39 @@ class System():
         return s
 
     # Lets find the reaction time, also with a trace so we can generate a graph
-    def max_reaction_time(self):
+    def max_reaction_time(self, gen_graph=True):
         modelfile = "tmp.xml"
-
         self.write(modelfile)
         mrt = UPPAAL.sup(modelfile)
-        query = "E<> monitor.measure && monitor.x[lm] == " + str(mrt)
+        trace, graph = None, None
+        if gen_graph:
+            query = "E<> monitor.measure && monitor.x[lm] == " + str(mrt)
+            trace = UPPAAL.get_trace(modelfile, query)
+            nodes = list(map(lambda x : x.name, self.nodes))
+            graph = Grapher.gen_mrt(nodes, trace)
+        return mrt, trace, graph
+
+    def get_graph(self, mrt):
+        print("Get graph...")
+        start = time.time()
+        modelfile = "tmp.xml"
+        self.write(modelfile)
+        trace, graph = None, None
+        query = "E<> monitor.measure && monitor.x[lm] >= " + str(mrt)
         trace = UPPAAL.get_trace(modelfile, query)
         nodes = list(map(lambda x : x.name, self.nodes))
         graph = Grapher.gen_mrt(nodes, trace)
-
+        end = time.time()
+        print("Query time: ", end - start)
         return mrt, trace, graph
 
 
-    def measure_load(self, load_threshold, percentage):
+
+
+    def measure_load(self, load_threshold, percentage, upper_limit):
         modelfile = "tmp.xml"
         self.write(modelfile)
-        data = UPPAAL.measure_load(modelfile, load_threshold, percentage)
+        data = UPPAAL.measure_load(modelfile, load_threshold, percentage, upper_limit)
 
         return data
 
