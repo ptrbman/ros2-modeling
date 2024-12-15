@@ -109,7 +109,7 @@ def case_study(cameras, prob, mcamera, subscription, fusion_period=500):
     CAMERAWCET = 20
     CAMERAPER = 1000
     OBJDETWCET = 50
-    FUSIONSUBWCET = 50
+    FUSIONSUBWCET = 90
     FUSIONSUB = 10
     FUSIONTIMERWCET = 90
     ACTUATORWCET = 50
@@ -304,18 +304,18 @@ fout = open("results_first_study.txt", 'w')
 fout.write(latex)
 fout.close()
 
-#latex = ten_fold()
-#fout = open("results_ten_fold.txt", 'w')
-#fout.write(latex)
-#fout.close()
+latex = ten_fold()
+fout = open("results_ten_fold.txt", 'w')
+fout.write(latex)
+fout.close()
 
-#latex = subscription()
-#fout = open("results_subscription.txt", 'w')
-#fout.write(latex)
-#fout.close()
+latex = subscription()
+fout = open("results_subscription.txt", 'w')
+fout.write(latex)
+fout.close()
 
-#latex = fusion_study()
-#fout = open("results_fusion_study.txt", 'w')
-#fout.write(latex)
-#fout.close()
+latex = fusion_study()
+fout = open("results_fusion_study.txt", 'w')
+fout.write(latex)
+fout.close()
 
