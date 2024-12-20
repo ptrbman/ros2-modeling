@@ -286,7 +286,7 @@ def subscription():
 # Fusion periods
 def fusion_study():
     all = []
-    max_cameras = 9
+    max_cameras = 6
     for mcamera in [0, 1]:
         for sub in [False]:
             for upper_limit in [10000]:
