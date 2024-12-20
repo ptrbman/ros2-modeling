@@ -16,4 +16,4 @@ The experiments of the paper was run using UPPAAL 5.0.0.
 Enter the root directory and execute command:
 ```python demo.py```
 
-This will run the example of the paper, the validation experiments as well as the use case. Total runtime should be less than five minutes on a normal laptop.
+This will run the the use case of the paper and output .txt-files with latex tables. Total runtime should be less than five minutes on a normal laptop. You can also uncomment lines to run the example and validation case.
