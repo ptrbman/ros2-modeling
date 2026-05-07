@@ -1,0 +1,724 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE nta PUBLIC '-//Uppaal Team//DTD Flat System 1.6//EN' 'http://www.it.uu.se/research/group/darts/uppaal/flat-1_6.dtd'>
+<nta>
+	<declaration>clock global;
+
+// We assume TIMERS are given higher priority than other nodes
+// A High priority is executed first
+
+int measure_now = false;
+
+
+
+// Constants for identifying monitored packets
+const int EMPTY = 0;
+const int MONITORS = 20; 
+const int FIRST_PAYLOAD = 1;
+const int MAX_PAYLOAD = 20;
+const int BUF_SIZE = 2;
+int PAYLOAD = FIRST_PAYLOAD;
+int LAST_PAYLOAD = EMPTY;
+int LAST_GENERATOR = 0;  // Safe default; always set by monitored DataGenerator before use
+
+const int POLICY_DROP_NEWEST = 0;
+const int POLICY_DROP_OLDEST = 1;
+const int POLICY_DROP_FAIR_SOURCE = 2;
+const int POLICY_DROP_LOWEST_PRIO = 3;
+
+const int SOURCE_UNKNOWN = -1;
+
+int dropped_packets = 0;
+
+!!!DECLARATIONS!!!
+// Some general stuff
+const int MONITOR_FREE = 0;
+const int MONITOR_SENT = 1;
+
+int nm=0; // Next monitor
+int lm=0; // Last monitor
+int pd; // Published data
+int ps; // Published source
+
+int free_monitors = MONITORS;
+int monitor_payload[MONITORS];
+int monitor_deadline[MONITORS];
+broadcast chan new_job, start_monitor, publish[C];
+
+bool deadline_missed = false;
+
+
+// *queued* jobs 
+int QUEUES[C][BUF_SIZE];
+int QUEUES_COUNT[C];
+
+// This should all be initialized to SOURCE_UNKNOWN
+int QUEUE_SRC[C][BUF_SIZE];
+
+
+int SRC_IN_QUEUE[C];
+
+// *scheduled* jobs
+int HOST_JOBS[C][3]; // ID, data, source
+int HOST_JOBS_COUNT;
+
+
+bool waiting_jobs() {
+    int i;
+    for (i=0; i&lt;C; i++) {
+        if (QUEUES_COUNT[i] &gt; 0) return true;
+    }
+    return false;
+}
+
+
+//// QUEUE FUNCTIONS
+
+void queue_append(int task, int data, int src) {
+    int pos = QUEUES_COUNT[task];
+    
+    assert(src != SOURCE_UNKNOWN);  // Check before modifying state
+
+    QUEUES[task][pos] = data;
+    QUEUE_SRC[task][pos] = src;
+    QUEUES_COUNT[task] += 1;
+    SRC_IN_QUEUE[src] += 1;
+}
+
+void queue_remove(int task, int pos) {
+    int i;
+    int rem_src = QUEUE_SRC[task][pos];
+    assert(rem_src != SOURCE_UNKNOWN);
+    assert(SRC_IN_QUEUE[rem_src] &gt; 0);
+    SRC_IN_QUEUE[rem_src] -= 1;
+
+	for (i=pos; i&lt;BUF_SIZE-1; i++) {
+        QUEUES[task][i] = QUEUES[task][i+1];
+        QUEUE_SRC[task][i] = QUEUE_SRC[task][i+1];
+    }
+
+    QUEUES[task][BUF_SIZE-1] = EMPTY;
+    QUEUE_SRC[task][BUF_SIZE-1] = SOURCE_UNKNOWN;
+
+    QUEUES_COUNT[task] -= 1;
+}
+
+int fair_source_victim(int task) {
+    int i;
+	int s;
+	int c;
+    int best_idx = 0;
+    int best_count = -1;
+
+    for (i=0; i&lt;QUEUES_COUNT[task]; i++) {
+		s = QUEUE_SRC[task][i];
+        assert(s != SOURCE_UNKNOWN); 
+		c = SRC_IN_QUEUE[s];
+
+        if (c &gt; best_count) {
+            best_count = c;
+            best_idx = i;
+        }
+    }
+
+    return best_idx;
+}
+
+int lowest_prio_victim(int task) {
+    int i;
+	int s;
+	int p;
+    int best_idx = 0;
+    int worst_prio = -99999;
+
+    for (i=0; i&lt;QUEUES_COUNT[task]; i++) {
+		s =  QUEUE_SRC[task][i];
+        assert(s != SOURCE_UNKNOWN);
+		p = PRIO[s];
+
+        if (p &gt; worst_prio) {
+            worst_prio = p;
+            best_idx = i;
+        }
+    }
+
+    return best_idx;
+}    
+
+
+
+void queue_job(int task, int data, int src) {
+	int victim;
+	int victim_src;
+	int victim_prio;
+	int incoming_prio;
+
+	// Source must never be unknown - fail fast if it is
+	assert(src != SOURCE_UNKNOWN);
+
+    if (QUEUES_COUNT[task] &lt; BUF_SIZE) {
+        queue_append(task, data, src);
+        return;
+    } 
+
+    dropped_packets += 1;
+        
+    if (QUEUE_POLICY == POLICY_DROP_NEWEST) {
+        // Silently drop
+        return;
+    }
+    
+    if (QUEUE_POLICY == POLICY_DROP_OLDEST) {
+        queue_remove(task, 0);
+        queue_append(task, data, src);
+		return;
+    }
+
+    if (QUEUE_POLICY == POLICY_DROP_FAIR_SOURCE) {
+		victim = fair_source_victim(task);
+        queue_remove(task, victim);
+        queue_append(task, data, src);
+        return;
+    }
+
+    if (QUEUE_POLICY == POLICY_DROP_LOWEST_PRIO) {
+		victim = lowest_prio_victim(task);
+		victim_src = QUEUE_SRC[task][victim];
+        assert(victim_src != SOURCE_UNKNOWN);
+        
+		victim_prio = PRIO[victim_src];
+        assert(src != SOURCE_UNKNOWN);
+		incoming_prio = PRIO[src];
+
+        if (incoming_prio &lt; victim_prio) {
+            queue_remove(task, victim);
+            queue_append(task, data, src);
+        }
+    
+        // if not we drop
+        return;
+	}
+    assert(false);
+}
+
+
+// Right-most job first, i.e., greatest priority first
+void schedule() {
+    int i, j, tmp_id, tmp_data, tmp_src;
+
+    // Bubble sort by priority, swapping all three fields
+    for (i=0; i&lt;HOST_JOBS_COUNT; i++) {
+        for (j=0; j&lt;HOST_JOBS_COUNT-1; j++) {
+            if (PRIO[HOST_JOBS[j][0]] &gt; PRIO[HOST_JOBS[j+1][0]]) {
+                tmp_id = HOST_JOBS[j][0];
+                tmp_data = HOST_JOBS[j][1];
+                tmp_src = HOST_JOBS[j][2];
+                HOST_JOBS[j][0] = HOST_JOBS[j+1][0];
+                HOST_JOBS[j][1] = HOST_JOBS[j+1][1];
+                HOST_JOBS[j][2] = HOST_JOBS[j+1][2];
+                HOST_JOBS[j+1][0] = tmp_id;
+                HOST_JOBS[j+1][1] = tmp_data;
+                HOST_JOBS[j+1][2] = tmp_src;
+            }        
+        }
+    }
+}
+
+int dequeue(int task) {
+    int tmp;
+    assert(QUEUES_COUNT[task] &gt; 0);
+    tmp = QUEUES[task][0];
+    queue_remove(task, 0);
+    return tmp;
+}
+
+void take_jobs() {
+	int i, j, s;
+
+    assert(HOST_JOBS_COUNT == 0);   // Host jobs should be zero here
+    for (i=0; i&lt;C; i++) {
+        if (QUEUES_COUNT[i] &gt; 0) {
+			s = QUEUE_SRC[i][0];
+            j = dequeue(i);
+            HOST_JOBS[HOST_JOBS_COUNT][0] = i;
+            HOST_JOBS[HOST_JOBS_COUNT][1] = j;
+			HOST_JOBS[HOST_JOBS_COUNT][2] = s;
+            HOST_JOBS_COUNT += 1;
+        }
+    }
+    schedule();
+}
+
+int next_job_idx() {
+    HOST_JOBS_COUNT--;
+    return HOST_JOBS_COUNT;
+}
+
+// If value is negative, read from local memory DATA[-value].
+int get_data(int value) {
+	if (value &gt;= 0) {
+		return value;
+	}
+
+	return DATA[-value];
+}
+
+// If value is negative, read from local source memory for node -value.
+int get_source(int value) {
+	if (value &gt;= 0) {
+		return value;
+	}
+
+	return SRC[-value];
+}
+
+void assign_monitor() {
+    assert(free_monitors &gt; 0);
+    monitor_payload[nm] = PAYLOAD;
+    monitor_deadline[nm] = DEADLINES[LAST_GENERATOR];
+    free_monitors -= 1;
+  
+    PAYLOAD = PAYLOAD + 1;
+
+    nm = (nm + 1) % MONITORS;
+}
+
+
+// True if payload is monitored (i.e., not empty or already seen)
+bool relevant_payload(int payload) {
+    int i = 0;
+    if (payload == EMPTY)
+        return false;
+    for (i = 0; i &lt; MONITORS; i++) {
+        if (monitor_payload[i] == payload)
+            return true;
+    }
+
+    return false;
+}
+
+
+
+
+// When freeing up, we free up all monitors incl. those whose data got thrown away.
+void release_monitors() {
+    int i;
+    int count = 0;  // Safeguard against infinite loops
+    // We could get an old value, in that case it is not in the monitored payloads
+    bool old_value = true;
+    for (i = 0; i &lt; MONITORS; i++) {
+        if (monitor_payload[i] == pd)
+            old_value = false;
+    }
+
+    // If it is an old value, we can just ignore it as it has already been seen once
+    if (old_value)
+    	return;
+
+    // Free previously used monitors (with safeguard against infinite loops)
+    while (monitor_payload[lm] != pd &amp;&amp; count &lt; MONITORS) {
+        monitor_payload[lm] = EMPTY;
+        free_monitors += 1;
+        lm = (lm + 1) % MONITORS;
+        count += 1;
+    }
+    
+    // Also free the one just handled.
+    LAST_PAYLOAD = monitor_payload[lm];
+    monitor_payload[lm] = EMPTY;
+    free_monitors += 1;
+    lm = (lm + 1) % MONITORS;
+}</declaration>
+	<template>
+		<name>DataGenerator</name>
+		<parameter>int id, const int p, const int delay, const bool monitored</parameter>
+		<declaration>clock x = p - delay;</declaration>
+		<location id="id0" x="-42" y="221">
+			<name x="-93" y="195">wait</name>
+			<label kind="invariant" x="-102" y="229">x &lt;= p</label>
+		</location>
+		<location id="id1" x="212" y="221">
+			<name x="229" y="195">fire</name>
+			<committed/>
+		</location>
+		<location id="id2" x="-374" y="221">
+		</location>
+		<init ref="id0"/>
+		<transition id="id3">
+			<source ref="id0"/>
+			<target ref="id2"/>
+			<label kind="guard" x="-323" y="195">PAYLOAD &gt;= MAX_PAYLOAD</label>
+		</transition>
+		<transition id="id4">
+			<source ref="id1"/>
+			<target ref="id0"/>
+			<label kind="guard" x="-8" y="161">!monitored</label>
+			<label kind="assignment" x="-8" y="178">queue_job(id, EMPTY, id),
+x = 0</label>
+		</transition>
+		<transition id="id4m">
+			<source ref="id1"/>
+			<target ref="id0"/>
+			<label kind="guard" x="68" y="161">monitored</label>
+			<label kind="synchronisation" x="68" y="144">start_monitor!</label>
+			<label kind="assignment" x="68" y="178">queue_job(id, PAYLOAD, id),
+LAST_GENERATOR = id,
+x = 0</label>
+		</transition>
+		<transition id="id5">
+			<source ref="id0"/>
+			<target ref="id1"/>
+			<label kind="guard" x="17" y="280">x == p &amp;&amp; PAYLOAD &lt; MAX_PAYLOAD</label>
+			<label kind="synchronisation" x="17" y="263">new_job?</label>
+			<nail x="-42" y="255"/>
+			<nail x="212" y="255"/>
+		</transition>
+		<transition id="id6">
+			<source ref="id0"/>
+			<target ref="id1"/>
+			<label kind="guard" x="25" y="119">x == p &amp;&amp; PAYLOAD &lt; MAX_PAYLOAD</label>
+			<label kind="synchronisation" x="25" y="102">new_job!</label>
+			<nail x="-42" y="144"/>
+			<nail x="212" y="144"/>
+		</transition>
+	</template>
+	<template>
+		<name>Subscriber</name>
+		<parameter>int id, broadcast chan &amp;s, int &amp;data_source, int &amp;src_source</parameter>
+		<location id="id14" x="-297" y="76">
+			<name x="-323" y="68">l</name>
+		</location>
+		<init ref="id14"/>
+		<transition id="id15">
+			<source ref="id14"/>
+			<target ref="id14"/>
+			<label kind="synchronisation" x="-306" y="-17">s?</label>
+			<label kind="assignment" x="-408" y="0">SRC[id] = src_source,
+queue_job(id, data_source, src_source)</label>
+			<nail x="-272" y="25"/>
+			<nail x="-323" y="25"/>
+		</transition>
+	</template>
+	<template>
+		<name>Timer</name>
+		<parameter>int id, const int p, const int delay, int &amp;data_source, int &amp;src_source</parameter>
+		<declaration>clock x = p - delay;</declaration>
+		<location id="id16" x="-8" y="0">
+			<label kind="invariant" x="8" y="-25">x &lt;= p</label>
+		</location>
+		<init ref="id16"/>
+		<transition id="id17">
+			<source ref="id16"/>
+			<target ref="id16"/>
+			<label kind="guard" x="-85" y="68">x == p</label>
+			<label kind="synchronisation" x="-85" y="51">new_job?</label>
+			<label kind="assignment" x="-85" y="85">queue_job(id, data_source, src_source),
+x = 0</label>
+			<nail x="8" y="42"/>
+			<nail x="-25" y="42"/>
+		</transition>
+		<transition id="id18">
+			<source ref="id16"/>
+			<target ref="id16"/>
+			<label kind="guard" x="-76" y="-102">x == p</label>
+			<label kind="synchronisation" x="-76" y="-119">new_job!</label>
+			<label kind="assignment" x="-76" y="-85">queue_job(id, data_source, src_source),
+x = 0</label>
+			<nail x="-25" y="-42"/>
+			<nail x="8" y="-42"/>
+		</transition>
+	</template>
+	<template>
+		<name>Host</name>
+		<parameter>bool det</parameter>
+		<declaration>clock x;
+int idx;
+int job;
+int data;
+int src;</declaration>
+		<location id="id19" x="-331" y="-255">
+			<name x="-374" y="-280">idle</name>
+		</location>
+		<location id="id20" x="-229" y="-34">
+			<name x="-212" y="-42">takenext</name>
+			<urgent/>
+		</location>
+		<location id="id21" x="-229" y="76">
+			<name x="-212" y="67">executing</name>
+			<label kind="invariant" x="-221" y="93">x &lt;= WCET[job]</label>
+		</location>
+		<location id="id22" x="-467" y="-34">
+			<name x="-527" y="-42">loop</name>
+			<committed/>
+		</location>
+		<location id="id23" x="-331" y="-136">
+			<name x="-314" y="-153">check</name>
+			<urgent/>
+		</location>
+		<location id="id24" x="-467" y="76">
+			<name x="-518" y="68">done</name>
+			<urgent/>
+		</location>
+		<init ref="id19"/>
+		<transition id="id25">
+			<source ref="id21"/>
+			<target ref="id24"/>
+			<label kind="guard" x="-442" y="161">(!det &amp;&amp; (WCET[job]/2) &lt;= x &amp;&amp; x &lt;= WCET[job])</label>
+			<label kind="assignment" x="-433" y="178">DATA[job] = data,
+SRC[job] = src,
+pd = data,
+ps = src</label>
+			<nail x="-229" y="153"/>
+			<nail x="-467" y="153"/>
+		</transition>
+		<transition id="id26">
+			<source ref="id24"/>
+			<target ref="id22"/>
+			<label kind="synchronisation" x="-595" y="17">publish[job]!</label>
+		</transition>
+		<transition id="id27">
+			<source ref="id23"/>
+			<target ref="id19"/>
+			<label kind="guard" x="-484" y="-204">!waiting_jobs()</label>
+			<nail x="-348" y="-195"/>
+		</transition>
+		<transition id="id28">
+			<source ref="id22"/>
+			<target ref="id23"/>
+			<label kind="guard" x="-561" y="-119">HOST_JOBS_COUNT == 0</label>
+			<label kind="synchronisation" x="-561" y="-136">new_job!</label>
+		</transition>
+		<transition id="id29">
+			<source ref="id22"/>
+			<target ref="id20"/>
+			<label kind="guard" x="-425" y="-59">HOST_JOBS_COUNT &gt; 0</label>
+		</transition>
+		<transition id="id30">
+			<source ref="id21"/>
+			<target ref="id24"/>
+			<label kind="guard" x="-442" y="85">(det &amp;&amp; x == WCET[job])</label>
+			<label kind="assignment" x="-433" y="102">DATA[job] = data,
+SRC[job] = src,
+pd = data,
+ps = src</label>
+		</transition>
+		<transition id="id31">
+			<source ref="id20"/>
+			<target ref="id21"/>
+			<label kind="assignment" x="-221" y="-17">idx = next_job_idx(),
+job = HOST_JOBS[idx][0],
+data = get_data(HOST_JOBS[idx][1]),
+src = get_source(HOST_JOBS[idx][2]),
+x = 0</label>
+		</transition>
+		<transition id="id32">
+			<source ref="id23"/>
+			<target ref="id20"/>
+			<label kind="guard" x="-297" y="-127">waiting_jobs()</label>
+			<label kind="assignment" x="-272" y="-110">take_jobs()</label>
+		</transition>
+		<transition id="id33">
+			<source ref="id19"/>
+			<target ref="id23"/>
+			<label kind="synchronisation" x="-306" y="-204">new_job?</label>
+			<nail x="-314" y="-195"/>
+		</transition>
+	</template>
+	<template>
+		<name>Monitor</name>
+		<parameter>int actuator, int p</parameter>
+		<declaration>clock x[MONITORS];</declaration>
+		<location id="id34" x="-289" y="-195">
+			<name x="-297" y="-229">i</name>
+		</location>
+		<location id="id35" x="-34" y="-195">
+			<name x="-44" y="-229">measure</name>
+			<committed/>
+		</location>
+		<location id="id36" x="-680" y="-161">
+			<name x="-740" y="-195">missed</name>
+		</location>
+		<location id="id37" x="-289" y="0">
+			<name x="-348" y="17">out_of_monitors</name>
+		</location>
+		<init ref="id34"/>
+		<transition id="id38">
+			<source ref="id34"/>
+			<target ref="id37"/>
+			<label kind="guard" x="-280" y="-93">free_monitors == 0</label>
+			<label kind="synchronisation" x="-280" y="-76">start_monitor?</label>
+		</transition>
+		<transition id="id39">
+			<source ref="id34"/>
+			<target ref="id36"/>
+			<label kind="select" x="-578" y="-161">m : int[0, MONITORS-1]</label>
+			<label kind="guard" x="-773" y="-136">monitor_payload[m] &gt; 0 &amp;&amp; monitor_deadline[m] &gt; 0 &amp;&amp; x[m] &gt; monitor_deadline[m]</label>
+			<label kind="assignment" x="-612" y="-110">deadline_missed = true</label>
+			<nail x="-357" y="-161"/>
+			<nail x="-603" y="-161"/>
+		</transition>
+		<transition id="id40">
+			<source ref="id34"/>
+			<target ref="id34"/>
+			<label kind="guard" x="-357" y="-348">free_monitors &gt; 0</label>
+			<label kind="synchronisation" x="-357" y="-374">start_monitor?</label>
+			<label kind="assignment" x="-357" y="-314">x[nm] = p,
+assign_monitor()</label>
+			<nail x="-348" y="-272"/>
+			<nail x="-246" y="-272"/>
+		</transition>
+		<transition id="id41">
+			<source ref="id35"/>
+			<target ref="id34"/>
+			<label kind="assignment" x="-229" y="-170">release_monitors(),
+measure_now = false</label>
+			<nail x="-102" y="-170"/>
+			<nail x="-221" y="-170"/>
+		</transition>
+		<transition id="id42">
+			<source ref="id34"/>
+			<target ref="id35"/>
+			<label kind="guard" x="-255" y="-246">relevant_payload(pd)</label>
+			<label kind="synchronisation" x="-238" y="-263">publish[actuator]?</label>
+			<label kind="assignment" x="-255" y="-221">measure_now = true</label>
+			<nail x="-221" y="-195"/>
+		</transition>
+	</template>
+	<template>
+		<name>ProbabilisticDataGenerator</name>
+		<parameter>int id, const int p, const int delay, int prob</parameter>
+		<declaration>clock x = p - delay;</declaration>
+		<location id="id43" x="425" y="221">
+			<name x="442" y="204">choose</name>
+			<committed/>
+		</location>
+		<location id="id44" x="0" y="221">
+			<name x="8" y="187">wait</name>
+			<label kind="invariant" x="-68" y="212">x &lt;= p</label>
+		</location>
+		<location id="id45" x="280" y="221">
+			<name x="263" y="187">fire</name>
+			<committed/>
+		</location>
+		<branchpoint id="id46" x="365" y="221"/>
+		<init ref="id44"/>
+		<transition id="id47">
+			<source ref="id46"/>
+			<target ref="id44"/>
+			<label kind="probability" x="102" y="255">100 - prob</label>
+			<nail x="289" y="255"/>
+			<nail x="59" y="255"/>
+		</transition>
+		<transition id="id48">
+			<source ref="id46"/>
+			<target ref="id45"/>
+			<label kind="probability" x="314" y="195">prob</label>
+		</transition>
+		<transition id="id49" controllable="false">
+			<source ref="id43"/>
+			<target ref="id46"/>
+			<label kind="assignment" x="374" y="195">x = 0</label>
+		</transition>
+		<transition id="id50">
+			<source ref="id45"/>
+			<target ref="id44"/>
+			<label kind="assignment" x="59" y="195">queue_job(id, EMPTY, id)</label>
+		</transition>
+		<transition id="id51">
+			<source ref="id44"/>
+			<target ref="id43"/>
+			<label kind="guard" x="136" y="314">x == p</label>
+			<label kind="synchronisation" x="136" y="297">new_job?</label>
+			<nail x="0" y="289"/>
+			<nail x="425" y="289"/>
+		</transition>
+		<transition id="id52">
+			<source ref="id44"/>
+			<target ref="id43"/>
+			<label kind="guard" x="136" y="127">x == p</label>
+			<label kind="synchronisation" x="136" y="110">new_job!</label>
+			<nail x="0" y="152"/>
+			<nail x="425" y="152"/>
+		</transition>
+	</template>
+	<template>
+		<name>MonitoredProbabilisticDataGenerator</name>
+		<parameter>int id, const int p, const int delay, int prob</parameter>
+		<declaration>clock x = p - delay;</declaration>
+		<location id="id53" x="425" y="221">
+			<name x="442" y="204">choose</name>
+			<committed/>
+		</location>
+		<location id="id54" x="0" y="221">
+			<name x="8" y="187">wait</name>
+			<label kind="invariant" x="-68" y="212">x &lt;= p</label>
+		</location>
+		<location id="id55" x="280" y="221">
+			<name x="263" y="187">monitored_fire</name>
+			<committed/>
+		</location>
+		<branchpoint id="id56" x="365" y="221"/>
+		<init ref="id54"/>
+		<transition id="id57">
+			<source ref="id56"/>
+			<target ref="id54"/>
+			<label kind="probability" x="102" y="255">100 - prob</label>
+			<nail x="289" y="255"/>
+			<nail x="59" y="255"/>
+		</transition>
+		<transition id="id58">
+			<source ref="id56"/>
+			<target ref="id55"/>
+			<label kind="probability" x="314" y="195">prob</label>
+		</transition>
+		<transition id="id59" controllable="false">
+			<source ref="id53"/>
+			<target ref="id56"/>
+			<label kind="assignment" x="374" y="195">x = 0</label>
+		</transition>
+		<transition id="id60">
+			<source ref="id55"/>
+			<target ref="id54"/>
+			<label kind="synchronisation" x="85" y="178">start_monitor!</label>
+			<label kind="assignment" x="59" y="195">queue_job(id, PAYLOAD, id)</label>
+		</transition>
+		<transition id="id61">
+			<source ref="id54"/>
+			<target ref="id53"/>
+			<label kind="guard" x="136" y="314">x == p</label>
+			<label kind="synchronisation" x="136" y="297">new_job?</label>
+			<nail x="0" y="289"/>
+			<nail x="425" y="289"/>
+		</transition>
+		<transition id="id62">
+			<source ref="id54"/>
+			<target ref="id53"/>
+			<label kind="guard" x="136" y="127">x == p</label>
+			<label kind="synchronisation" x="136" y="110">new_job!</label>
+			<nail x="0" y="152"/>
+			<nail x="425" y="152"/>
+		</transition>
+	</template>
+	<system>// These are always used
+
+host = Host(deterministic_host);
+
+
+!!!SYSTEM!!!
+
+
+</system>
+	<queries>
+		<query>
+			<formula>Pr[&lt;=100000] (&lt;&gt; deadline_missed)</formula>
+			<comment># Probability of deadline violation within 100000 time units</comment>
+		</query>
+		<query>
+			<formula>E[&lt;=100000;1000] (max: (measure_now * monitor.x[lm]))</formula>
+			<comment># Maximum reaction time (MRT) via SMC with 1000 runs</comment>
+		</query>
+		<query>
+			<formula>sup: dropped_packets</formula>
+			<comment># Maximum number of dropped packets during execution</comment>
+		</query>
+	</queries>
+</nta>
