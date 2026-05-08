@@ -28,6 +28,7 @@ const int POLICY_DROP_LOWEST_PRIO = 3;
 const int SOURCE_UNKNOWN = -1;
 
 int dropped_packets = 0;
+const int SMC_HORIZON = !!!SMC_HORIZON!!!;
 
 !!!DECLARATIONS!!!
 // Some general stuff
@@ -128,12 +129,13 @@ int lowest_prio_victim(int task) {
 	int s;
 	int p;
     int best_idx = 0;
-    int worst_prio = -99999;
+	int worst_prio = 0;
 
     for (i=0; i&lt;QUEUES_COUNT[task]; i++) {
 		s =  QUEUE_SRC[task][i];
         assert(s != SOURCE_UNKNOWN);
 		p = PRIO[s];
+		assert(p &gt; 0);
 
         if (p &gt; worst_prio) {
             worst_prio = p;
@@ -186,8 +188,10 @@ void queue_job(int task, int data, int src) {
         assert(victim_src != SOURCE_UNKNOWN);
         
 		victim_prio = PRIO[victim_src];
+		assert(victim_prio &gt; 0);
         assert(src != SOURCE_UNKNOWN);
 		incoming_prio = PRIO[src];
+		assert(incoming_prio &gt; 0);
 
         if (incoming_prio &lt; victim_prio) {
             queue_remove(task, victim);
@@ -529,6 +533,7 @@ x = 0</label>
 		<declaration>clock x[MONITORS];</declaration>
 		<location id="id34" x="-289" y="-195">
 			<name x="-297" y="-229">i</name>
+			<label kind="invariant" x="-297" y="-212">global &lt;= SMC_HORIZON + 1</label>
 		</location>
 		<location id="id35" x="-34" y="-195">
 			<name x="-44" y="-229">measure</name>
@@ -536,9 +541,11 @@ x = 0</label>
 		</location>
 		<location id="id36" x="-680" y="-161">
 			<name x="-740" y="-195">missed</name>
+			<label kind="invariant" x="-740" y="-178">global &lt;= SMC_HORIZON + 1</label>
 		</location>
 		<location id="id37" x="-289" y="0">
 			<name x="-348" y="17">out_of_monitors</name>
+			<label kind="invariant" x="-348" y="34">global &lt;= SMC_HORIZON + 1</label>
 		</location>
 		<init ref="id34"/>
 		<transition id="id38">
@@ -709,16 +716,20 @@ host = Host(deterministic_host);
 </system>
 	<queries>
 		<query>
-			<formula>Pr[&lt;=100000] (&lt;&gt; deadline_missed)</formula>
+			<formula>Pr[&lt;=SMC_HORIZON] (&lt;&gt; deadline_missed)</formula>
 			<comment># Probability of deadline violation within 100000 time units</comment>
 		</query>
 		<query>
-			<formula>E[&lt;=100000;1000] (max: (measure_now * monitor.x[lm]))</formula>
+			<formula>E[&lt;=SMC_HORIZON;1000] (max: (measure_now * monitor.x[lm]))</formula>
 			<comment># Maximum reaction time (MRT) via SMC with 1000 runs</comment>
 		</query>
 		<query>
 			<formula>sup: dropped_packets</formula>
 			<comment># Maximum number of dropped packets during execution</comment>
+		</query>
+		<query>
+			<formula>Pr[&lt;=SMC_HORIZON] (&lt;&gt; monitor.out_of_monitors)</formula>
+			<comment># Safety check: monitor pool exhaustion must be unreachable</comment>
 		</query>
 	</queries>
 </nta>
