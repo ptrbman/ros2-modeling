@@ -1,0 +1,118 @@
+{
+  "name": "validation_ss_v2_aggregate",
+  "line_endings": "lf",
+  "monitors": 5,
+  "smc_horizon": 100000,
+  "deterministic_host": true,
+  "queue_policy": "drop_newest",
+  "monitor": {
+    "actuator": "ACTUATOR1",
+    "period": 360
+  },
+  "nodes": [
+    {
+      "name": "SENSOR1",
+      "wcet": 10,
+      "prio": 1
+    },
+    {
+      "name": "SENSOR2",
+      "wcet": 20,
+      "prio": 2
+    },
+    {
+      "name": "FILTER1",
+      "wcet": 10,
+      "prio": 3
+    },
+    {
+      "name": "FILTER2",
+      "wcet": 20,
+      "prio": 4
+    },
+    {
+      "name": "FUSION1",
+      "wcet": 30,
+      "prio": 6
+    },
+    {
+      "name": "FILTER3",
+      "wcet": 30,
+      "prio": 7
+    },
+    {
+      "name": "ACTUATOR1",
+      "wcet": 30,
+      "prio": 8
+    }
+  ],
+  "generators": [
+    {
+      "name": "GEN_SENSOR1",
+      "instance": "sensor1",
+      "period_const": "SENSOR1_PERIOD",
+      "deadline_const": "SENSOR1_DEADLINE",
+      "period": 360,
+      "deadline": 3000,
+      "topic": "SENSOR1",
+      "monitored": true,
+      "prio": 1
+    },
+    {
+      "name": "GEN_SENSOR2",
+      "instance": "sensor2",
+      "period_const": "SENSOR2_PERIOD",
+      "deadline_const": "SENSOR2_DEADLINE",
+      "period": 360,
+      "deadline": 3000,
+      "topic": "SENSOR2",
+      "monitored": false,
+      "prio": 2
+    }
+  ],
+  "subscribers": [
+    {
+      "name": "filter1",
+      "instance": "filter1",
+      "task": "FILTER1",
+      "signal_from": "SENSOR1"
+    },
+    {
+      "name": "filter2",
+      "instance": "filter2",
+      "task": "FILTER2",
+      "signal_from": "SENSOR2"
+    },
+    {
+      "name": "fusion1",
+      "instance": "fusion1",
+      "task": "FUSION1",
+      "signal_from": "FILTER1",
+      "data_source": "pd",
+      "src": "GEN_SENSOR1",
+      "subprocesses": [
+        {
+          "name": "FUSION1xFILTER2",
+          "instance": "fusion1xfilter2",
+          "source": "FILTER2",
+          "data_source": "pd",
+          "src": "GEN_SENSOR2",
+          "wcet": 30,
+          "prio": 5
+        }
+      ]
+    },
+    {
+      "name": "filter3",
+      "instance": "filter3",
+      "task": "FILTER3",
+      "signal_from": "FUSION1"
+    },
+    {
+      "name": "actuator1",
+      "instance": "actuator1",
+      "task": "ACTUATOR1",
+      "signal_from": "FILTER3"
+    }
+  ]
+}
