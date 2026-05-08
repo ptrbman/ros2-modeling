@@ -1,0 +1,49 @@
+Camera Case Example (S1T1R1H1)
+==============================
+
+System Topology (ASCII)
+-----------------------
+
+  [CAM_STD_1] --\
+  [CAM_STD_2] ---+-> [OBJDET_1] --\
+  [CAM_TH_1]  --/                  \
+                                      +-> [FUSION_1] -> [ACTUATOR_1]
+  [CAM_RP_1] --\                  /
+  [CAM_HD_1] ---+-> [OBJDET_2] --/
+  [CAM_HD_2]  --/
+
+
+This case models a camera-driven robotics perception-and-control pipeline
+in which camera streams are grouped before global decision making. A
+camera publishes frames, an object-detection group processes one or more
+camera streams, fusion combines outputs from one or more object-detection
+groups, and the actuator consumes the fused state to trigger control
+decisions. The experiment target is end-to-end timeliness and quality
+under contention, rather than single-stream behavior in isolation.
+
+The camera population is intentionally heterogeneous and uses four
+predefined classes: standard, thermal, rapid, and hd. Multiple cameras
+can be instantiated per class. Using the current repository
+parameterization: standard is a balanced baseline
+(period 220 ms, camera WCET 12 ms, objdet WCET 24 ms, chance 95,
+deadline 700 ms, prio 2); thermal is slower and heavier with lower
+confidence (period 800 ms, WCETs 40/80 ms, chance 75,
+deadline 2400 ms, prio 4); rapid is the fastest and highest-confidence
+stream (period 90 ms, WCETs 6/14 ms, chance 98, deadline 320 ms,
+prio 1); and hd is medium-fast with heavier compute
+(period 180 ms, WCETs 20/42 ms, chance 90, deadline 700 ms, prio 3).
+These classes produce asynchronous arrivals and mixed criticality in
+shared queues.
+
+A concrete baseline uses one camera from each class (S1T1R1H1), but the
+same topology supports larger compositions (for example, multiple
+standard and hd cameras) and mixed-class routing into shared object
+detection groups such as OBJDET_1 and OBJDET_2. This composition is
+useful for queue-policy comparisons because bursts from rapid and hd
+streams can interfere with thermal or standard processing depending on
+dropping and priority rules, especially when categories share the same
+OBJDET group. As an experiment template, it supports controlled sweeps
+over queue policy, fusion period, grouping, and priority assignments
+while keeping the overall architecture fixed, making differences in
+deadline satisfaction, drop dynamics, and actuation throughput easier to
+attribute to scheduling and buffering choices.
