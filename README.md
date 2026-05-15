@@ -12,8 +12,11 @@ Download and install according to instructions. Ensure a symbolic link (shortcut
 
 The experiments of the paper was run using UPPAAL 5.0.0.
 
-# Running experiments
+# Running experiments FSEN2025
 Enter the root directory and execute command:
 ```python demo.py```
 
 This will run the the use case of the paper and output .txt-files with latex tables. Total runtime should be less than five minutes on a normal laptop. You can also uncomment lines to run the example and validation case.
+
+# Running experiments ISoLA 2026
+Enter the isola folder and then follow the instructions in README.md
