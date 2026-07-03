@@ -29,6 +29,14 @@ def _system(n: int) -> str:
     return "\n".join(L + ["", "monitor = Monitor(ACTUATOR, 0);", f"system {','.join(sys)};", ""])
 
 
+def _monitor_invariant(monitors: int) -> str:
+    conds = [
+        f"(monitor_payload[{i}] == 0 || monitor_deadline[{i}]== 0 || x[{i}] &lt;= monitor_deadline[{i}])"
+        for i in range(monitors)
+    ]
+    return "global &lt;= SMC_HORIZON + 1 &amp;&amp; " + " &amp;&amp;\n".join(conds)
+
+
 def render_xml(
     template: Path,
     out_xml: Path,
@@ -36,10 +44,18 @@ def render_xml(
     load: int,
     policy: str,
     deterministic_host: bool = True,
+    monitors: int = 10,
+    smc_horizon: int = 10000,
 ) -> None:
     t = template.read_text()
-    out = t.replace(
-        "!!!DECLARATIONS!!!",
-        _decl(n, load, policy, deterministic_host=deterministic_host),
-    ).replace("!!!SYSTEM!!!", _system(n))
+    out = (
+        t.replace(
+            "!!!DECLARATIONS!!!",
+            _decl(n, load, policy, deterministic_host=deterministic_host),
+        )
+        .replace("!!!SYSTEM!!!", _system(n))
+        .replace("!!!MONITORS!!!", str(monitors))
+        .replace("!!!SMC_HORIZON!!!", str(smc_horizon))
+        .replace("!!!MONITOR_INVARIANT!!!", _monitor_invariant(monitors))
+    )
     out_xml.write_text(out)

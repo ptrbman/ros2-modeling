@@ -12,8 +12,9 @@ from pathlib import Path
 from generate_xml import render_xml
 
 HERE = Path(__file__).resolve().parent
-TEMPLATE_SMALL = HERE / "template_small.xml"
-TEMPLATE_LARGE = HERE / "template_large.xml"
+TEMPLATE = HERE / "template.xml"
+# (monitors, smc_horizon) per size
+SIZE_PARAMS = {"small": (10, 10000), "large": (20, 20000)}
 
 # Adjust path for your system
 VERIFYTA = Path("/home/ptr/ISoLA/ros2-modeling/verifyta")
@@ -27,8 +28,11 @@ PR_RE = re.compile(r"Pr\(<>.*?\) in \[([0-9.eE+\-]+),\s*([0-9.eE+\-]+)\]")
 MEAN_RE = re.compile(r"mean=([0-9.eE+\-]+)")
 
 
-def instantiate(n: int, load: int, template: Path, out_xml: Path, deterministic_host: bool) -> None:
-    render_xml(template, out_xml, n, load, FIXED_POLICY, deterministic_host=deterministic_host)
+def instantiate(n: int, load: int, out_xml: Path, deterministic_host: bool, monitors: int, smc_horizon: int) -> None:
+    render_xml(
+        TEMPLATE, out_xml, n, load, FIXED_POLICY,
+        deterministic_host=deterministic_host, monitors=monitors, smc_horizon=smc_horizon,
+    )
 
 
 def _model_path(n: int, load: int, size: str, deterministic_host: bool) -> Path:
@@ -69,10 +73,10 @@ def _run_formula(xml: Path, formula: str, timeout: int) -> str | None:
         q.unlink(missing_ok=True)
 
 
-def run_case(n: int, load: int, template: Path, deterministic_host: bool, timeout: int = 120) -> dict:
-    size = "small" if template == TEMPLATE_SMALL else "large"
+def run_case(n: int, load: int, size: str, deterministic_host: bool, timeout: int = 120) -> dict:
+    monitors, smc_horizon = SIZE_PARAMS[size]
     xml = _model_path(n, load, size, deterministic_host)
-    t0 = time.time(); instantiate(n, load, template, xml, deterministic_host); gen_s = time.time() - t0
+    t0 = time.time(); instantiate(n, load, xml, deterministic_host, monitors, smc_horizon); gen_s = time.time() - t0
     t0 = time.time(); q2 = _run_formula(xml, Q_PR_MISS, timeout); q2_s = time.time() - t0
     t0 = time.time(); q4 = _run_formula(xml, Q_E_VIOL, timeout); q4_s = time.time() - t0
     t0 = time.time(); qd = _run_formula(xml, Q_E_DROP, timeout); drop_s = time.time() - t0
@@ -82,7 +86,7 @@ def run_case(n: int, load: int, template: Path, deterministic_host: bool, timeou
 
 
 def sweep(size: str = "smaller") -> None:
-    template = TEMPLATE_SMALL if size == "smaller" else TEMPLATE_LARGE
+    model_size = "small" if size == "smaller" else "large"
     for deterministic_host in (True, False):
         out_suffix = "det_true" if deterministic_host else "det_false"
         out_csv = f"camera_results_{size}_{out_suffix}.csv"
@@ -93,7 +97,7 @@ def sweep(size: str = "smaller") -> None:
                     f"size={size} n={n} load={load} policy={FIXED_POLICY} "
                     f"deterministic_host={deterministic_host}"
                 )
-                rows.append(run_case(n, load, template, deterministic_host=deterministic_host))
+                rows.append(run_case(n, load, model_size, deterministic_host=deterministic_host))
         with open(out_csv, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
             w.writeheader(); w.writerows(rows)

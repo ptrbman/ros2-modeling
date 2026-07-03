@@ -10,7 +10,7 @@ bool measure_now = false;
 
 // Constants for identifying monitored packets
 const int EMPTY = 0;
-const int MONITORS = 20; 
+const int MONITORS = !!!MONITORS!!!; 
 const int FIRST_PAYLOAD = 1;
 const int MAX_PAYLOAD = 20;
 const int BUF_SIZE = 5;
@@ -26,7 +26,7 @@ const int SOURCE_UNKNOWN = -1;
 int dropped_packets = 0;
 int measured_packets = 0;
 int deadlines_missed = 0;
-const int SMC_HORIZON = 20000;
+const int SMC_HORIZON = !!!SMC_HORIZON!!!;
 
 !!!DECLARATIONS!!!
 
@@ -408,7 +408,13 @@ x = 0</label>
 	<template>
 		<name>Timer</name>
 		<parameter>int task, const int p, int &amp;data_source, int &amp;src_source</parameter>
-		<declaration>clock x;</declaration>
+		<declaration>// src_source is bound by reference: point it at SRC[task] to dynamically
+// track whichever source last produced the data (general case), or at a
+// dedicated fixed (non-const, never-written) variable to always attribute
+// this timer's jobs to one specific monitored stream -- e.g. FIXED_SRC_x :=
+// GEN_SENSORx -- which is what every case in this paper does, since we
+// always trace a single fixed task chain per model instantiation.
+clock x;</declaration>
 		<location id="id17" x="-8" y="0">
 			<label kind="invariant" x="8" y="-25">x &lt;= p</label>
 		</location>
@@ -436,42 +442,6 @@ x = 0</label>
 			<label kind="guard" x="-59" y="-102">x == p &amp;&amp; !is_done()</label>
 			<label kind="synchronisation" x="-59" y="-127">new_job!</label>
 			<label kind="assignment" x="-59" y="-85">queue_job(task, data_source, src_source),
-x = 0</label>
-			<nail x="-25" y="-42"/>
-			<nail x="8" y="-42"/>
-		</transition>
-	</template>
-	<template>
-		<name>AggregateTimer</name>
-		<parameter>int task, const int p, int &amp;data_source, int source</parameter>
-		<declaration>clock x;</declaration>
-		<location id="id22" x="-8" y="0">
-			<label kind="invariant" x="8" y="-25">x &lt;= p</label>
-		</location>
-		<location id="id23" x="255" y="0">
-		</location>
-		<init ref="id22"/>
-		<transition id="id24">
-			<source ref="id22"/>
-			<target ref="id23"/>
-			<label kind="guard" x="93" y="-25">is_done()</label>
-		</transition>
-		<transition id="id25">
-			<source ref="id22"/>
-			<target ref="id22"/>
-			<label kind="guard" x="-85" y="68">x == p &amp;&amp; !is_done()</label>
-			<label kind="synchronisation" x="-85" y="51">new_job?</label>
-			<label kind="assignment" x="-85" y="85">queue_job(task, data_source, source),
-x = 0</label>
-			<nail x="8" y="42"/>
-			<nail x="-25" y="42"/>
-		</transition>
-		<transition id="id26">
-			<source ref="id22"/>
-			<target ref="id22"/>
-			<label kind="guard" x="-102" y="-94">x == p &amp;&amp; !is_done()</label>
-			<label kind="synchronisation" x="-25" y="-111">new_job!</label>
-			<label kind="assignment" x="-136" y="-68">queue_job(task, data_source, source),
 x = 0</label>
 			<nail x="-25" y="-42"/>
 			<nail x="8" y="-42"/>
@@ -587,26 +557,7 @@ x = 0</label>
 		<declaration>clock x[MONITORS];</declaration>
 		<location id="id44" x="-289" y="-195">
 			<name x="-314" y="-187">i</name>
-			<label kind="invariant" x="-603" y="-76">global &lt;= SMC_HORIZON + 1 &amp;&amp; (monitor_payload[0] == 0 || monitor_deadline[0]== 0 || x[0] &lt;= monitor_deadline[0]) &amp;&amp;
-(monitor_payload[1] == 0 || monitor_deadline[1]== 0 || x[1] &lt;= monitor_deadline[1]) &amp;&amp;
-(monitor_payload[2] == 0 || monitor_deadline[2]== 0 || x[2] &lt;= monitor_deadline[2]) &amp;&amp;
-(monitor_payload[3] == 0 || monitor_deadline[3]== 0 || x[3] &lt;= monitor_deadline[3]) &amp;&amp;
-(monitor_payload[4] == 0 || monitor_deadline[4]== 0 || x[4] &lt;= monitor_deadline[4]) &amp;&amp;
-(monitor_payload[5] == 0 || monitor_deadline[5]== 0 || x[5] &lt;= monitor_deadline[5]) &amp;&amp;
-(monitor_payload[6] == 0 || monitor_deadline[6]== 0 || x[6] &lt;= monitor_deadline[6]) &amp;&amp;
-(monitor_payload[7] == 0 || monitor_deadline[7]== 0 || x[7] &lt;= monitor_deadline[7]) &amp;&amp;
-(monitor_payload[8] == 0 || monitor_deadline[8]== 0 || x[8] &lt;= monitor_deadline[8]) &amp;&amp;
-(monitor_payload[9] == 0 || monitor_deadline[9]== 0 || x[9] &lt;= monitor_deadline[9]) &amp;&amp;
-(monitor_payload[10] == 0 || monitor_deadline[10]== 0 || x[10] &lt;= monitor_deadline[10]) &amp;&amp;
-(monitor_payload[11] == 0 || monitor_deadline[11]== 0 || x[11] &lt;= monitor_deadline[11]) &amp;&amp;
-(monitor_payload[12] == 0 || monitor_deadline[12]== 0 || x[12] &lt;= monitor_deadline[12]) &amp;&amp;
-(monitor_payload[13] == 0 || monitor_deadline[13]== 0 || x[13] &lt;= monitor_deadline[13]) &amp;&amp;
-(monitor_payload[14] == 0 || monitor_deadline[14]== 0 || x[14] &lt;= monitor_deadline[14]) &amp;&amp;
-(monitor_payload[15] == 0 || monitor_deadline[15]== 0 || x[15] &lt;= monitor_deadline[15]) &amp;&amp;
-(monitor_payload[16] == 0 || monitor_deadline[16]== 0 || x[16] &lt;= monitor_deadline[16]) &amp;&amp;
-(monitor_payload[17] == 0 || monitor_deadline[17]== 0 || x[17] &lt;= monitor_deadline[17]) &amp;&amp;
-(monitor_payload[18] == 0 || monitor_deadline[18]== 0 || x[18] &lt;= monitor_deadline[18]) &amp;&amp;
-(monitor_payload[19] == 0 || monitor_deadline[19]== 0 || x[19] &lt;= monitor_deadline[19])</label>
+			<label kind="invariant" x="-603" y="-76">!!!MONITOR_INVARIANT!!!</label>
 		</location>
 		<location id="id45" x="-34" y="-195">
 			<name x="-44" y="-229">measure</name>
